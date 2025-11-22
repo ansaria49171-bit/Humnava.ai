@@ -1,0 +1,241 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>HUMNAVA AI — Your Emotional AI Companion</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <div class="page">
+    <header class="topbar">
+      <div class="brand">
+        <img src="logo.jpg" alt="Humnava Logo" class="logo" />
+        <div class="brand-text">
+          <h1>HUMNAVA AI</h1>
+          <p class="tag">AI that listens from the heart</p>
+        </div>
+      </div>
+      <div class="header-controls">
+        <div class="theme-toggle" id="themeToggle" title="Toggle theme">🌗</div>
+        <div class="status" id="status">Live</div>
+      </div>
+    </header>
+
+    <!-- AVATAR + SUGGESTIONS -->
+    <div class="hero">
+      <div id="avatar" class="avatar-box avatar-idle">
+        <img src="logo.jpg" alt="Humnava Avatar" />
+      </div>
+
+      <div class="quick-suggestions" id="suggestions">
+        <button class="chip">Motivation</button>
+        <button class="chip">I feel sad</button>
+        <button class="chip">Song suggestion</button>
+      </div>
+    </div>
+
+    <main class="chat-area">
+      <div id="chatBox" class="chat-box" aria-live="polite"></div>
+
+      <!-- MIC + INPUT -->
+      <form id="chatForm" class="chat-form" autocomplete="off">
+        <button type="button" id="micBtn" class="mic-btn" title="Speak">🎤</button>
+        <input id="input" type="text" placeholder="Speak or type a message..." />
+        <button type="submit" id="sendBtn" class="send-btn">Send</button>
+      </form>
+    </main>
+
+    <footer class="foot">
+      <small>© 2025 HUMNAVA AI • Built with ♥ by Ansari Abdulla</small>
+    </footer>
+  </div>
+
+  <script>
+    // ---------- CONFIG ----------
+    const PROXY_URL = "https://humnava-backend-19jj-git-main-abdulla-ansari-s-projects.vercel.app";
+    const CHAT_ENDPOINT = PROXY_URL + "/chat";
+
+    // ---------- DOM ----------
+    const chatBox = document.getElementById("chatBox");
+    const form = document.getElementById("chatForm");
+    const input = document.getElementById("input");
+    const sendBtn = document.getElementById("sendBtn");
+    const status = document.getElementById("status");
+    const micBtn = document.getElementById("micBtn");
+    const avatar = document.getElementById("avatar");
+    const suggestions = document.getElementById("suggestions");
+    const themeToggle = document.getElementById("themeToggle");
+
+    // utilities
+    function escapeHtml(s) {
+      return (s + "")
+        .replaceAll("&", "&amp;")
+        .replaceAll("<", "&lt;")
+        .replaceAll(">", "&gt;")
+        .replaceAll('"', "&quot;");
+    }
+
+    // ---------- AVATAR STATES ----------
+    function avatarIdle() { avatar.className = "avatar-box avatar-idle"; }
+    function avatarThinking() { avatar.className = "avatar-box avatar-thinking"; }
+    function avatarSpeaking() { avatar.className = "avatar-box avatar-speaking"; }
+
+    // ---------- UI helpers ----------
+    function addBubble(kind, html) {
+      const wrap = document.createElement("div");
+      wrap.className = "bubble " + kind + " enter";
+      wrap.innerHTML = html;
+      chatBox.appendChild(wrap);
+      // reveal animation
+      requestAnimationFrame(()=> wrap.classList.remove('enter'));
+      chatBox.scrollTop = chatBox.scrollHeight;
+      return wrap;
+    }
+
+    function setStatus(text, color) {
+      status.textContent = text;
+      status.style.background = color || "var(--status)";
+    }
+
+    function typingBubble() {
+      return addBubble("bot typing", `<span class="dots"><span></span><span></span><span></span></span> Humnava is typing...`);
+    }
+
+    // ---------- TTS (voice output) ----------
+    function speakText(text) {
+      try {
+        const ut = new SpeechSynthesisUtterance(text);
+        // language auto selection heuristic (simple)
+        const hasHindi = /[\u0900-\u097F]/.test(text);
+        ut.lang = hasHindi ? "hi-IN" : "en-US";
+        ut.rate = 1;
+        ut.pitch = 1;
+        avatarSpeaking();
+        ut.onend = () => avatarIdle();
+        speechSynthesis.cancel();
+        speechSynthesis.speak(ut);
+      } catch (e) { console.error(e); avatarIdle(); }
+    }
+
+    // ---------- SEND REQUEST ----------
+    async function sendMessage(message) {
+      if (!message) return;
+      addBubble("user", `<div class="txt">${escapeHtml(message)}</div>`);
+      input.value = "";
+      input.disabled = true;
+      sendBtn.disabled = true;
+
+      const typingEl = typingBubble();
+      avatarThinking();
+      setStatus("Thinking...", "linear-gradient(90deg,#6b4be6,#b742b8)");
+
+      try {
+        const res = await fetch(CHAT_ENDPOINT, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ message })
+        });
+
+        if (typingEl && typingEl.parentNode) typingEl.remove();
+
+        if (!res.ok) {
+          const txt = await res.text();
+          addBubble("bot error", `<div class="txt">Server error. Try again.</div>`);
+          setStatus("Error", "#c7516b");
+          avatarIdle();
+        } else {
+          const data = await res.json();
+          const reply = data.reply || "I'm here for you.";
+          addBubble("bot", `<div class="txt">${escapeHtml(reply)}</div>`);
+          setStatus("Live", "#4ad28a");
+          speakText(reply);
+        }
+      } catch (err) {
+        if (typingEl && typingEl.parentNode) typingEl.remove();
+        addBubble("bot error", `<div class="txt">Network error. Check connection.</div>`);
+        setStatus("Offline", "#e07b7b");
+        avatarIdle();
+      } finally {
+        input.disabled = false;
+        sendBtn.disabled = false;
+        input.focus();
+      }
+    }
+
+    // ---------- FORM SUBMIT ----------
+    form.addEventListener("submit", (e) => {
+      e.preventDefault();
+      const text = input.value.trim();
+      if (!text) return;
+      sendMessage(text);
+    });
+
+    // Enter to send
+    input.addEventListener("keydown", (e) => {
+      if (e.key === "Enter" && !e.shiftKey) {
+        e.preventDefault();
+        form.dispatchEvent(new Event("submit", { cancelable: true }));
+      }
+    });
+
+    // ---------- QUICK SUGGESTIONS ----------
+    suggestions.addEventListener("click", (e) => {
+      if (e.target.matches(".chip")) {
+        sendMessage(e.target.textContent);
+      }
+    });
+
+    // ---------- MIC (voice input) ----------
+    let recognizing = false;
+    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (SpeechRecognition) {
+      const recognition = new SpeechRecognition();
+      recognition.lang = "hi-IN";
+      recognition.interimResults = false;
+      recognition.continuous = false;
+
+      micBtn.addEventListener("click", () => {
+        if (!recognizing) {
+          recognition.start();
+          micBtn.textContent = "🎙️";
+          recognizing = true;
+        } else {
+          recognition.stop();
+          micBtn.textContent = "🎤";
+          recognizing = false;
+        }
+      });
+
+      recognition.onresult = (e) => {
+        const voiceText = e.results[0][0].transcript;
+        input.value = voiceText;
+        sendMessage(voiceText);
+      };
+
+      recognition.onerror = () => {
+        micBtn.textContent = "🎤";
+        recognizing = false;
+      };
+
+      recognition.onend = () => {
+        micBtn.textContent = "🎤";
+        recognizing = false;
+      };
+    } else { micBtn.style.display = "none"; }
+
+    // ---------- THEME TOGGLE ----------
+    themeToggle.addEventListener("click", () => {
+      document.body.classList.toggle("light");
+    });
+
+    // initial
+    window.addEventListener("load", () => {
+      addBubble("bot", `<div class="txt">👋 Hi, I'm Humnava — your emotional AI companion. Ask me anything.</div>`);
+      input.focus();
+      avatarIdle();
+    });
+  </script>
+</body>
+        </html>
+        
